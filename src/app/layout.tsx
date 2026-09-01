@@ -13,7 +13,7 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "OmniReach | Omnichannel CRM",
+  title: "OmniReach",
   description: "Multi-tenant outbound CRM for high-ticket law firms and dental clinics powered by Neon Postgres.",
 };
 

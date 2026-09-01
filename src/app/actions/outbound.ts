@@ -2,6 +2,7 @@
 
 import { db } from "@/db"
 import { marketplaceLeads } from "@/db/schema"
+import { revalidatePath } from "next/cache"
 
 interface MockLead {
   company_name: string
@@ -31,6 +32,9 @@ export async function pushLeadsToManyreach(leads: MockLead[]) {
       .returning()
 
     console.log("Mock push to Manyreach successful for", insertedLeads.length, "leads")
+
+    revalidatePath("/omnireach")
+    revalidatePath("/leads")
 
     return { success: true, count: insertedLeads.length }
   } catch (error) {

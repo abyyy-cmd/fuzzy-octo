@@ -23,8 +23,8 @@ import type { WorkspaceRecord } from "@/db/queries"
 
 const navItems = [
   {
-    title: "Overview",
-    url: "/overview",
+    title: "OmniReach",
+    url: "/omnireach",
   },
   {
     title: "Leads",
@@ -73,10 +73,10 @@ export function AppSidebar({ workspaces, ...props }: AppSidebarProps) {
           <SidebarGroupContent>
             <SidebarMenu className="gap-1">
               {navItems.map((item) => {
-                const isOverview =
-                  item.url === "/overview" &&
-                  (pathname === "/overview" || pathname === "/")
-                const isActive = pathname === item.url || isOverview
+                const isDashboard =
+                  item.url === "/omnireach" &&
+                  (pathname === "/omnireach" || pathname === "/overview" || pathname === "/")
+                const isActive = pathname === item.url || isDashboard
                 const targetUrl =
                   item.url === "/webhooks" || item.url === "/settings"
                     ? item.url

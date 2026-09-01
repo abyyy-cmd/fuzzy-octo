@@ -352,5 +352,6 @@ export function OverviewView() {
   )
 }
 
-// Alias for backwards compatibility
+// Aliases for backwards compatibility and clarity
+export const OmniReachView = OverviewView
 export const MarketplaceView = OverviewView

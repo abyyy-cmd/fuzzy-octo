@@ -10,6 +10,7 @@ export default auth((req) => {
 
   const isDashboardRoute =
     pathname === "/" ||
+    pathname.startsWith("/omnireach") ||
     pathname.startsWith("/overview") ||
     pathname.startsWith("/marketplace") ||
     pathname.startsWith("/leads") ||
@@ -27,12 +28,12 @@ export default auth((req) => {
   }
 
   if (isAuthRoute && isLoggedIn) {
-    return NextResponse.redirect(new URL("/overview", req.nextUrl))
+    return NextResponse.redirect(new URL("/omnireach", req.nextUrl))
   }
 
   if (pathname.startsWith("/marketplace")) {
     const search = req.nextUrl.search
-    return NextResponse.redirect(new URL(`/overview${search}`, req.nextUrl))
+    return NextResponse.redirect(new URL(`/omnireach${search}`, req.nextUrl))
   }
 
   return NextResponse.next()
