@@ -1,7 +1,10 @@
 "use client"
 
 import * as React from "react"
-import { UploadCloud, FileSpreadsheet, CheckCircle2, Loader2 } from "lucide-react"
+import { useSearchParams } from "next/navigation"
+import Papa from "papaparse"
+import { toast } from "sonner"
+import { UploadCloud, FileSpreadsheet, CheckCircle2, Loader2, AlertCircle } from "lucide-react"
 import {
   Dialog,
   DialogContent,
@@ -10,18 +13,40 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
+import { uploadLeadsBatch } from "@/app/actions/leads"
 
 interface UploadLeadsDialogProps {
   open: boolean
   onOpenChange: (open: boolean) => void
+  workspaceId?: string
+  onSuccess?: () => void
 }
 
-export function UploadLeadsDialog({ open, onOpenChange }: UploadLeadsDialogProps) {
+export function UploadLeadsDialog({
+  open,
+  onOpenChange,
+  workspaceId: propWorkspaceId,
+  onSuccess,
+}: UploadLeadsDialogProps) {
+  const searchParams = useSearchParams()
+  const currentWorkspace = propWorkspaceId || searchParams.get("workspace") || "legal"
+
   const [dragActive, setDragActive] = React.useState(false)
   const [selectedFile, setSelectedFile] = React.useState<File | null>(null)
   const [isUploading, setIsUploading] = React.useState(false)
   const [uploadSuccess, setUploadSuccess] = React.useState(false)
+  const [errorMessage, setErrorMessage] = React.useState<string | null>(null)
   const fileInputRef = React.useRef<HTMLInputElement>(null)
+
+  // Reset state when dialog opens or closes
+  React.useEffect(() => {
+    if (!open) {
+      setSelectedFile(null)
+      setIsUploading(false)
+      setUploadSuccess(false)
+      setErrorMessage(null)
+    }
+  }, [open])
 
   const handleDrag = (e: React.DragEvent) => {
     e.preventDefault()
@@ -39,9 +64,12 @@ export function UploadLeadsDialog({ open, onOpenChange }: UploadLeadsDialogProps
     setDragActive(false)
     if (e.dataTransfer.files && e.dataTransfer.files[0]) {
       const file = e.dataTransfer.files[0]
-      if (file.name.endsWith('.csv') || file.type === "text/csv") {
+      if (file.name.endsWith(".csv") || file.type === "text/csv") {
         setSelectedFile(file)
         setUploadSuccess(false)
+        setErrorMessage(null)
+      } else {
+        toast.error("Please upload a valid .csv file")
       }
     }
   }
@@ -50,22 +78,76 @@ export function UploadLeadsDialog({ open, onOpenChange }: UploadLeadsDialogProps
     if (e.target.files && e.target.files[0]) {
       setSelectedFile(e.target.files[0])
       setUploadSuccess(false)
+      setErrorMessage(null)
     }
   }
 
-  const handleUpload = async () => {
+  const handleUpload = () => {
     if (!selectedFile) return
+
     setIsUploading(true)
-    // Simulate upload / server action
-    setTimeout(() => {
-      setIsUploading(false)
-      setUploadSuccess(true)
-      setTimeout(() => {
-        onOpenChange(false)
-        setSelectedFile(null)
-        setUploadSuccess(false)
-      }, 1200)
-    }, 1500)
+    setErrorMessage(null)
+
+    Papa.parse(selectedFile, {
+      header: true,
+      skipEmptyLines: true,
+      complete: async (results) => {
+        // Required Debug Logging
+        console.log("Parsed CSV Output:", results.data)
+
+        if (!results.data || results.data.length === 0) {
+          setIsUploading(false)
+          setErrorMessage("The uploaded CSV file contains no valid data rows.")
+          toast.error("CSV file is empty or could not be parsed.")
+          return
+        }
+
+        try {
+          const response = await uploadLeadsBatch(
+            results.data as any[],
+            currentWorkspace
+          )
+
+          if (!response.success) {
+            setIsUploading(false)
+            const errorText = response.error || "Failed to import leads."
+            setErrorMessage(errorText)
+            toast.error(errorText)
+            // Modal remains open on failure as required
+            return
+          }
+
+          // Success flow
+          setIsUploading(false)
+          setUploadSuccess(true)
+          toast.success(
+            `Successfully imported ${response.count ?? results.data.length} leads!`
+          )
+
+          if (onSuccess) {
+            onSuccess()
+          }
+
+          setTimeout(() => {
+            onOpenChange(false)
+            setSelectedFile(null)
+            setUploadSuccess(false)
+          }, 1200)
+        } catch (err) {
+          setIsUploading(false)
+          const errorText =
+            err instanceof Error ? err.message : "Unexpected upload error"
+          setErrorMessage(errorText)
+          toast.error(errorText)
+        }
+      },
+      error: (error) => {
+        setIsUploading(false)
+        const errorText = `CSV Parsing Error: ${error.message}`
+        setErrorMessage(errorText)
+        toast.error(errorText)
+      },
+    })
   }
 
   return (
@@ -77,7 +159,7 @@ export function UploadLeadsDialog({ open, onOpenChange }: UploadLeadsDialogProps
             Import Sourced Leads
           </DialogTitle>
           <DialogDescription>
-            Upload a CSV file containing your lead list to sync with Supabase and initiate Manyreach sequences.
+            Upload a CSV file containing your lead list to sync with Neon Postgres.
           </DialogDescription>
         </DialogHeader>
 
@@ -120,7 +202,9 @@ export function UploadLeadsDialog({ open, onOpenChange }: UploadLeadsDialogProps
               <>
                 <p className="text-sm font-medium text-foreground">
                   Drag & drop your CSV here, or{" "}
-                  <span className="text-primary font-semibold hover:underline">browse</span>
+                  <span className="text-primary font-semibold hover:underline">
+                    browse
+                  </span>
                 </p>
                 <p className="text-xs text-muted-foreground mt-1">
                   Supports .CSV with Company, Contact, Email & Phone columns
@@ -128,6 +212,13 @@ export function UploadLeadsDialog({ open, onOpenChange }: UploadLeadsDialogProps
               </>
             )}
           </div>
+
+          {errorMessage && (
+            <div className="flex items-start gap-2 rounded-lg bg-destructive/10 p-3 text-xs text-destructive border border-destructive/20">
+              <AlertCircle className="h-4 w-4 shrink-0 mt-0.5" />
+              <span>{errorMessage}</span>
+            </div>
+          )}
 
           {uploadSuccess && (
             <div className="flex items-center gap-2 rounded-lg bg-emerald-50 dark:bg-emerald-950/40 p-3 text-sm text-emerald-700 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-800">

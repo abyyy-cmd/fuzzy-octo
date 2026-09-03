@@ -20,6 +20,7 @@ import {
   TableRow,
 } from "@/components/ui/table"
 import { SlideOutPanel } from "@/components/slide-out-panel"
+import { UploadLeadsDialog } from "@/components/upload-leads"
 import { fetchWorkspaceLeads } from "@/app/actions/leads"
 import type { LeadRecord } from "@/db/queries"
 
@@ -30,29 +31,25 @@ export function LeadsView() {
   const [leads, setLeads] = React.useState<LeadRecord[]>([])
   const [loading, setLoading] = React.useState(true)
   const [selectedLead, setSelectedLead] = React.useState<LeadRecord | null>(null)
+  const [isUploadOpen, setIsUploadOpen] = React.useState(false)
 
-  React.useEffect(() => {
-    let isMounted = true
-
+  const loadLeads = React.useCallback(() => {
+    setLoading(true)
     fetchWorkspaceLeads(currentWorkspace)
       .then((data) => {
-        if (isMounted) {
-          setLeads(data)
-          setLoading(false)
-        }
+        setLeads(data)
+        setLoading(false)
       })
       .catch((err) => {
         console.error("Error loading leads:", err)
-        if (isMounted) {
-          setLeads([])
-          setLoading(false)
-        }
+        setLeads([])
+        setLoading(false)
       })
-
-    return () => {
-      isMounted = false
-    }
   }, [currentWorkspace])
+
+  React.useEffect(() => {
+    loadLeads()
+  }, [loadLeads])
 
   const isDental = currentWorkspace === "dental"
   const workspaceTitle = isDental ? "Dental Clinics" : "Law Firms"
@@ -70,9 +67,13 @@ export function LeadsView() {
         </div>
 
         <div className="flex items-center gap-2">
-          <Button size="sm" className="gap-1.5 text-xs shadow-xs cursor-pointer">
+          <Button
+            size="sm"
+            onClick={() => setIsUploadOpen(true)}
+            className="gap-1.5 text-xs shadow-xs cursor-pointer"
+          >
             <Plus className="h-3.5 w-3.5" />
-            Add Lead
+            Import / Add Lead
           </Button>
         </div>
       </div>
@@ -162,6 +163,12 @@ export function LeadsView() {
           </Table>
         </CardContent>
       </Card>
+
+      <UploadLeadsDialog
+        open={isUploadOpen}
+        onOpenChange={setIsUploadOpen}
+        onSuccess={loadLeads}
+      />
 
       <SlideOutPanel
         lead={selectedLead}

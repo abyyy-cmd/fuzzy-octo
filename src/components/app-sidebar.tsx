@@ -3,7 +3,17 @@
 import * as React from "react"
 import Link from "next/link"
 import { usePathname, useSearchParams } from "next/navigation"
-import { Sparkles, LogOut } from "lucide-react"
+import {
+  Sparkles,
+  LogOut,
+  LayoutDashboard,
+  Users,
+  Bot,
+  PhoneCall,
+  CalendarCheck,
+  Webhook,
+  Settings,
+} from "lucide-react"
 
 import {
   Sidebar,
@@ -25,18 +35,37 @@ const navItems = [
   {
     title: "OmniReach",
     url: "/omnireach",
+    icon: LayoutDashboard,
   },
   {
     title: "Leads",
     url: "/leads",
+    icon: Users,
+  },
+  {
+    title: "AI Assistant",
+    url: "/vapi",
+    icon: Bot,
+  },
+  {
+    title: "Call History",
+    url: "/calls",
+    icon: PhoneCall,
+  },
+  {
+    title: "Meetings",
+    url: "/meetings",
+    icon: CalendarCheck,
   },
   {
     title: "Webhooks",
     url: "/webhooks",
+    icon: Webhook,
   },
   {
     title: "Settings",
     url: "/settings",
+    icon: Settings,
   },
 ]
 
@@ -82,6 +111,8 @@ export function AppSidebar({ workspaces, ...props }: AppSidebarProps) {
                     ? item.url
                     : `${item.url}?workspace=${currentWorkspace}`
 
+                const Icon = item.icon
+
                 return (
                   <SidebarMenuItem key={item.title}>
                     <SidebarMenuButton
@@ -90,6 +121,7 @@ export function AppSidebar({ workspaces, ...props }: AppSidebarProps) {
                       tooltip={item.title}
                       className="font-medium text-sm px-3 py-2"
                     >
+                      {Icon && <Icon className="size-4 shrink-0" />}
                       <span>{item.title}</span>
                     </SidebarMenuButton>
                   </SidebarMenuItem>
@@ -130,3 +162,5 @@ export function AppSidebar({ workspaces, ...props }: AppSidebarProps) {
     </Sidebar>
   )
 }
+
+export default AppSidebar

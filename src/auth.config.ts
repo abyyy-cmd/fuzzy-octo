@@ -1,9 +1,14 @@
 import type { NextAuthConfig } from "next-auth"
 import Credentials from "next-auth/providers/credentials"
+import GitHub from "next-auth/providers/github"
 
 export const authConfig = {
   session: { strategy: "jwt" },
   providers: [
+    GitHub({
+      clientId: process.env.AUTH_GITHUB_ID || process.env.GITHUB_ID,
+      clientSecret: process.env.AUTH_GITHUB_SECRET || process.env.GITHUB_SECRET,
+    }),
     Credentials({
       name: "Credentials",
       credentials: {
@@ -41,13 +46,23 @@ export const authConfig = {
   callbacks: {
     jwt({ token, user }) {
       if (user) {
+        token.sub = user.id || token.sub
         token.role = (user as { role?: string }).role || "admin"
+      }
+      // Placeholder tenant/workspace as requested (will be made dynamic)
+      if (!token.workspace) {
+        token.workspace = "dental"
       }
       return token
     },
     session({ session, token }) {
       if (session.user) {
-        (session.user as { role?: string }).role = token.role as string
+        if (token.sub) {
+          session.user.id = token.sub
+        }
+        ;(session.user as { role?: string }).role = token.role as string
+        ;(session.user as { workspace?: string }).workspace =
+          (token.workspace as string) || "dental"
       }
       return session
     },

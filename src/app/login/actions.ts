@@ -41,6 +41,11 @@ export async function loginAction(
   }
 }
 
+export async function githubLoginAction(formData: FormData) {
+  const callbackUrl = (formData.get("callbackUrl") as string) || "/overview"
+  await signIn("github", { redirectTo: callbackUrl })
+}
+
 export async function logoutAction() {
   await signOut({ redirectTo: "/login" })
 }

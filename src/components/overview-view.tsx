@@ -57,29 +57,24 @@ export function OverviewView() {
   const [selectedLead, setSelectedLead] = React.useState<LeadRecord | null>(null)
   const [isUploadOpen, setIsUploadOpen] = React.useState(false)
 
-  // Fetch real leads from Neon Postgres via Server Action
-  React.useEffect(() => {
-    let isMounted = true
-
+  const loadLeads = React.useCallback(() => {
+    setLoading(true)
     fetchWorkspaceLeads(currentWorkspace)
       .then((data) => {
-        if (isMounted) {
-          setLeads(data)
-          setLoading(false)
-        }
+        setLeads(data)
+        setLoading(false)
       })
       .catch((err) => {
         console.error("Error loading leads:", err)
-        if (isMounted) {
-          setLeads([])
-          setLoading(false)
-        }
+        setLeads([])
+        setLoading(false)
       })
-
-    return () => {
-      isMounted = false
-    }
   }, [currentWorkspace])
+
+  // Fetch real leads from Neon Postgres via Server Action
+  React.useEffect(() => {
+    loadLeads()
+  }, [loadLeads])
 
   const isDental = currentWorkspace === "dental"
   const workspaceTitle = isDental ? "Dental Clinics" : "Law Firms"
@@ -341,6 +336,7 @@ export function OverviewView() {
       <UploadLeadsDialog
         open={isUploadOpen}
         onOpenChange={setIsUploadOpen}
+        onSuccess={loadLeads}
       />
 
       {/* Slide-out Unified Thread View */}

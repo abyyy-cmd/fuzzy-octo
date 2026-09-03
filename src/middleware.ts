@@ -14,6 +14,8 @@ export default auth((req) => {
     pathname.startsWith("/overview") ||
     pathname.startsWith("/marketplace") ||
     pathname.startsWith("/leads") ||
+    pathname.startsWith("/vapi") ||
+    pathname.startsWith("/calls") ||
     pathname.startsWith("/webhooks") ||
     pathname.startsWith("/settings")
 
