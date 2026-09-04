@@ -1,9 +1,10 @@
 import { db } from "@/db"
-import { workspaces, marketplaceLeads } from "@/db/schema"
+import { workspaces, marketplaceLeads, users } from "@/db/schema"
 import { eq } from "drizzle-orm"
 
 export type WorkspaceRecord = typeof workspaces.$inferSelect
 export type LeadRecord = typeof marketplaceLeads.$inferSelect
+export type UserRecord = typeof users.$inferSelect
 
 export async function getWorkspaces(): Promise<WorkspaceRecord[]> {
   try {
@@ -11,6 +12,40 @@ export async function getWorkspaces(): Promise<WorkspaceRecord[]> {
     return list
   } catch (error) {
     console.error("Error fetching workspaces:", error)
+    return []
+  }
+}
+
+export async function getWorkspaceById(idOrNiche: string): Promise<WorkspaceRecord | null> {
+  try {
+    const list = await db.select().from(workspaces)
+    const match = list.find((w) => w.id === idOrNiche || w.nicheType === idOrNiche)
+    if (match) return match
+
+    // Fallback for custom or client workspaces
+    return {
+      id: idOrNiche,
+      name:
+        idOrNiche === "legal"
+          ? "Sterling Law Group"
+          : idOrNiche === "dental"
+          ? "Apex Smiles Dental"
+          : idOrNiche.charAt(0).toUpperCase() + idOrNiche.slice(1) + " Workspace",
+      nicheType: idOrNiche.toLowerCase(),
+      createdAt: new Date(),
+    } as WorkspaceRecord
+  } catch (error) {
+    console.error("Error fetching workspace by id:", error)
+    return null
+  }
+}
+
+export async function getGlobalUsers(): Promise<UserRecord[]> {
+  try {
+    const list = await db.select().from(users)
+    return list
+  } catch (error) {
+    console.error("Error fetching users:", error)
     return []
   }
 }
