@@ -79,16 +79,33 @@ export function LoginView() {
 
   const [isGithubPending, startGithubTransition] = React.useTransition()
 
-  const [selectedRole, setSelectedRole] = React.useState<string>("admin")
-  const [email, setEmail] = React.useState("admin@crm.com")
-  const [password, setPassword] = React.useState("admin123")
-  const [targetCallbackUrl, setTargetCallbackUrl] = React.useState("/admin")
+  const [selectedRole, setSelectedRole] = React.useState<string>("legal")
+  const [email, setEmail] = React.useState("legal@omnireach.com")
+  const [password, setPassword] = React.useState("lawyer123")
+  const [targetCallbackUrl, setTargetCallbackUrl] = React.useState(
+    "/omnireach?workspace=legal"
+  )
 
   const handleSelectDemo = (account: (typeof demoAccounts)[number]) => {
     setSelectedRole(account.id)
     setEmail(account.email)
     setPassword(account.password)
     setTargetCallbackUrl(account.callbackUrl)
+  }
+
+  const handleEmailChange = (newEmail: string) => {
+    setEmail(newEmail)
+    const lower = newEmail.toLowerCase().trim()
+    if (lower.includes("legal") || lower.includes("law")) {
+      setSelectedRole("legal")
+      setTargetCallbackUrl("/omnireach?workspace=legal")
+    } else if (lower.includes("dental") || lower.includes("clinic")) {
+      setSelectedRole("dental")
+      setTargetCallbackUrl("/omnireach?workspace=dental")
+    } else if (lower.includes("admin")) {
+      setSelectedRole("admin")
+      setTargetCallbackUrl("/admin")
+    }
   }
 
   const handleGithubSubmit = (e: React.FormEvent<HTMLFormElement>) => {
@@ -182,7 +199,7 @@ export function LoginView() {
                     required
                     placeholder="name@company.com"
                     value={email}
-                    onChange={(e) => setEmail(e.target.value)}
+                    onChange={(e) => handleEmailChange(e.target.value)}
                     className="pl-9 text-xs h-9"
                   />
                 </div>

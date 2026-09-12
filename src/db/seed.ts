@@ -38,18 +38,21 @@ async function seed() {
 
   console.log("✓ Workspaces seeded")
 
-  // 2. Demo Admin User
-  await db
-    .insert(schema.users)
-    .values({
-      name: "Admin User",
-      email: "admin@crm.com",
-      role: "admin",
-    })
-    .onConflictDoNothing()
+  // 2. Demo Users (for reference - auth is handled by JWT, not DB)
+  const demoUsers = [
+    { id: "user-superadmin-1", name: "Super Admin", email: "admin@crm.com", role: "SUPERADMIN" },
+    { id: "user-legal", name: "Legal Intake", email: "legal@omnireach.com", role: "USER" },
+    { id: "user-dental", name: "Dental Clinic", email: "dental@omnireach.com", role: "USER" },
+  ]
 
-  console.log("✓ Admin user seeded")
+  for (const user of demoUsers) {
+    await db
+      .insert(schema.users)
+      .values(user)
+      .onConflictDoNothing()
+  }
 
+  console.log("✓ Demo users seeded")
   console.log("✓ Database seeding complete!")
 }
 

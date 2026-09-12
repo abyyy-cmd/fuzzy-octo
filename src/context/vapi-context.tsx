@@ -4,6 +4,32 @@ import * as React from "react"
 import Vapi from "@vapi-ai/web"
 import { toast } from "sonner"
 
+function parseVapiError(error: any): string {
+  if (!error) return "Unknown voice agent error"
+  if (typeof error === "string") return error
+  if (error?.error?.message && typeof error.error.message === "string") {
+    return error.error.message
+  }
+  if (error?.message && typeof error.message === "string") {
+    return error.message
+  }
+  if (typeof error?.error === "string") {
+    return error.error
+  }
+  if (error?.errorMsg && typeof error.errorMsg === "string") {
+    return error.errorMsg
+  }
+  if (error?.msg && typeof error.msg === "string") {
+    return error.msg
+  }
+  if (error?.reason && typeof error.reason === "string") {
+    return error.reason
+  }
+  const detailedMessage =
+    error?.message || String(error) || "Voice agent connection error"
+  return detailedMessage
+}
+
 // Bulletproof Singleton: Instantiate Vapi once outside of the React lifecycle
 const vapi = new Vapi(process.env.NEXT_PUBLIC_VAPI_PUBLIC_KEY || "placeholder-key")
 
@@ -19,6 +45,7 @@ export interface CallAnalysis {
   summary?: string
   structuredData?: {
     disposition?: "meeting_booked" | "not_booked" | "incomplete" | string
+    callCategory?: string
     [key: string]: any
   }
   [key: string]: any
@@ -30,6 +57,7 @@ export interface CallHistoryRecord {
   recordingUrl?: string
   customerNumber?: string
   disposition?: "meeting_booked" | "not_booked" | "incomplete" | string
+  callCategory?: string
   analysis?: CallAnalysis
   date: string
   duration: string
@@ -47,6 +75,7 @@ export interface VapiContextType {
   callDuration: number
   activeWorkspace: string | undefined
   currentVapiCallId: string | undefined
+  micPermissionState: "granted" | "denied" | "prompt" | "unavailable"
   startCall: (
     assistantId?: string,
     workspaceId?: string,
@@ -73,6 +102,7 @@ export function VapiProvider({ children }: { children: React.ReactNode }) {
   const [callDuration, setCallDuration] = React.useState<number>(0)
   const [activeWorkspace, setActiveWorkspace] = React.useState<string | undefined>("legal")
   const [currentVapiCallId, setCurrentVapiCallId] = React.useState<string | undefined>(undefined)
+  const [micPermissionState, setMicPermissionState] = React.useState<"granted" | "denied" | "prompt" | "unavailable">("prompt")
 
   // Refs for accessing latest values inside event callbacks without stale closures
   const transcriptsRef = React.useRef<TranscriptMessage[]>(transcripts)
@@ -162,6 +192,15 @@ export function VapiProvider({ children }: { children: React.ReactNode }) {
               messages: activeTranscripts,
             }
             localStorage.setItem(storageKey, JSON.stringify([newRecord, ...existing]))
+
+            // Persist to Postgres as well (newRecord -> /api/vapi/logs)
+            fetch("/api/vapi/logs", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ workspace: ws, call: newRecord }),
+            }).catch((e) => {
+              console.error("Error persisting call log to database:", e)
+            })
           } catch (e) {
             console.error("Error archiving call log:", e)
           }
@@ -231,12 +270,11 @@ export function VapiProvider({ children }: { children: React.ReactNode }) {
     }
 
     const handleError = (error: any) => {
-      console.error("Vapi Global Error:", error)
+      const detailedMessage = parseVapiError(error)
+      console.warn("Vapi Call Event Notice:", detailedMessage, error)
       setIsConnecting(false)
       setIsCallActive(false)
-      const errorMsg =
-        error?.message || error?.errorMsg || "Voice agent connection error"
-      toast.error(`Vapi: ${errorMsg}`)
+      toast.error(`Vapi: ${detailedMessage}`)
     }
 
     vapi.on("call-start", handleCallStart)
@@ -278,12 +316,15 @@ export function VapiProvider({ children }: { children: React.ReactNode }) {
     try {
       setIsConnecting(true)
 
+      // 1. Environment validation — ensure the Vapi public key is configured
       const apiKey = process.env.NEXT_PUBLIC_VAPI_PUBLIC_KEY
       if (!apiKey || apiKey === "placeholder-key") {
-        toast.info("Connecting demo voice session with placeholder configuration...")
+        toast.error("Vapi public key is not configured. Set NEXT_PUBLIC_VAPI_PUBLIC_KEY in your environment.")
+        setIsConnecting(false)
+        return
       }
 
-      // Resolve Assistant ID
+      // 2. Resolve Assistant ID
       let resolvedId = assistantId
       if (!resolvedId) {
         const ws = workspaceId || activeWorkspace
@@ -294,6 +335,32 @@ export function VapiProvider({ children }: { children: React.ReactNode }) {
         } else {
           resolvedId =
             process.env.NEXT_PUBLIC_VAPI_ASSISTANT_ID || "vapi-default-assistant"
+        }
+      }
+
+      // 3. ID validation — ensure assistantId is a non-empty string
+      if (!resolvedId || typeof resolvedId !== "string" || resolvedId.trim().length === 0) {
+        toast.error("No valid assistant ID resolved. Check your Vapi assistant configuration.")
+        setIsConnecting(false)
+        return
+      }
+
+      // 4. Microphone permission check — catch NotAllowedError before SDK crashes
+      if (typeof navigator !== "undefined" && navigator.mediaDevices?.getUserMedia) {
+        try {
+          const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+          stream.getTracks().forEach((t) => t.stop())
+          setMicPermissionState("granted")
+        } catch (micErr: any) {
+          const isDenied = micErr?.name === "NotAllowedError" || micErr?.name === "PermissionDeniedError"
+          setMicPermissionState(isDenied ? "denied" : "unavailable")
+          toast.error(
+            isDenied
+              ? "Microphone access was denied. Please allow microphone access in your browser settings and try again."
+              : `Microphone check failed: ${micErr?.message || "Unknown error"}`
+          )
+          setIsConnecting(false)
+          return
         }
       }
 
@@ -309,14 +376,13 @@ export function VapiProvider({ children }: { children: React.ReactNode }) {
         setCustomerNumber(customerNum)
         customerNumberRef.current = customerNum
       }
-    } catch (err) {
-      console.error("Failed to start Vapi call:", err)
+    } catch (err: any) {
+      const errMsg = parseVapiError(err)
+      console.warn("Failed to start Vapi call:", errMsg, err)
       setIsConnecting(false)
       setIsCallActive(false)
       toast.error(
-        err instanceof Error
-          ? err.message
-          : "Failed to initialize WebRTC call. Check your microphone permissions."
+        errMsg || "Failed to initialize WebRTC call. Check your microphone permissions."
       )
     }
   }
@@ -359,6 +425,7 @@ export function VapiProvider({ children }: { children: React.ReactNode }) {
         callDuration,
         activeWorkspace,
         currentVapiCallId,
+        micPermissionState,
         startCall,
         endCall,
         toggleMute,

@@ -13,6 +13,8 @@ export default auth((req) => {
     .toUpperCase()
     .replace(/[\s-_]+/g, "")
   const isSuperAdmin = userRole === "SUPERADMIN" || userRole === "ADMIN"
+  const userWorkspace =
+    (req.auth?.user as { workspace?: string })?.workspace || "legal"
 
   const isAdminAuthRoute = pathname.startsWith("/admin/login")
   const isAdminRoute = pathname.startsWith("/admin")
@@ -33,19 +35,30 @@ export default auth((req) => {
   const search = req.nextUrl.search
   const callbackUrl = encodeURIComponent(pathname + search)
 
-  // 1. If requesting /admin/login, allow it (or redirect to /admin if already super admin)
+  // 1. If requesting /admin/login
   if (isAdminAuthRoute) {
-    if (isLoggedIn && isSuperAdmin) {
-      return NextResponse.redirect(new URL("/admin", req.nextUrl))
+    if (isLoggedIn) {
+      if (isSuperAdmin) {
+        return NextResponse.redirect(new URL("/admin", req.nextUrl))
+      } else {
+        return NextResponse.redirect(
+          new URL(`/omnireach?workspace=${userWorkspace}`, req.nextUrl)
+        )
+      }
     }
     return NextResponse.next()
   }
 
-  // 2. For any other /admin/... route, verify that the session token exists and has role === 'SUPERADMIN'
+  // 2. For any other /admin/... route
   if (isAdminRoute) {
-    if (!isLoggedIn || !isSuperAdmin) {
+    if (!isLoggedIn) {
       return NextResponse.redirect(
         new URL(`/admin/login?callbackUrl=${callbackUrl}`, req.nextUrl)
+      )
+    }
+    if (!isSuperAdmin) {
+      return NextResponse.redirect(
+        new URL(`/omnireach?workspace=${userWorkspace}`, req.nextUrl)
       )
     }
     return NextResponse.next()
@@ -60,9 +73,27 @@ export default auth((req) => {
 
   // 4. Authenticated user visiting client /login page
   if (isStandardAuthRoute && isLoggedIn) {
-    return NextResponse.redirect(new URL("/omnireach", req.nextUrl))
+    if (isSuperAdmin) {
+      return NextResponse.redirect(new URL("/admin", req.nextUrl))
+    }
+    return NextResponse.redirect(
+      new URL(`/omnireach?workspace=${userWorkspace}`, req.nextUrl)
+    )
   }
 
+  // 5. Handling root path '/'
+  if (pathname === "/") {
+    if (isLoggedIn) {
+      if (isSuperAdmin) {
+        return NextResponse.redirect(new URL("/admin", req.nextUrl))
+      }
+      return NextResponse.redirect(
+        new URL(`/omnireach?workspace=${userWorkspace}`, req.nextUrl)
+      )
+    }
+  }
+
+  // 6. Marketplace alias redirect
   if (pathname.startsWith("/marketplace")) {
     return NextResponse.redirect(new URL(`/omnireach${search}`, req.nextUrl))
   }
@@ -75,3 +106,4 @@ export const config = {
     "/((?!api|_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)",
   ],
 }
+

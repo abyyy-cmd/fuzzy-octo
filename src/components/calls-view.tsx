@@ -38,25 +38,38 @@ import { Input } from "@/components/ui/input"
 import { toast } from "sonner"
 import { useVapi } from "@/context/vapi-context"
 import type { CallHistoryRecord } from "@/context/vapi-context"
+import { getCategoryHeader, inferCallCategory } from "@/lib/call-categorization"
 
 function renderDispositionBadge(disposition?: string) {
   const norm = (disposition || "").toLowerCase().replace(/[\s-_]+/g, "_")
-  if (norm === "meeting_booked" || norm === "booked") {
+  if (norm === "converted" || norm === "meeting_booked" || norm === "booked") {
     return (
       <Badge className="bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300 border border-emerald-300 font-medium text-[11px] px-2 py-0.5 shadow-none">
-        Meeting Booked
+        Converted
       </Badge>
     )
   }
-  if (norm === "not_booked" || norm === "not_interested" || norm === "unqualified") {
+  if (
+    norm === "not_converted" ||
+    norm === "not_booked" ||
+    norm === "not_interested" ||
+    norm === "unqualified"
+  ) {
     return (
       <Badge className="bg-slate-100 text-slate-800 dark:bg-slate-800 dark:text-slate-300 border border-slate-300 font-medium text-[11px] px-2 py-0.5 shadow-none">
-        Not Booked
+        Not Converted
+      </Badge>
+    )
+  }
+  if (norm === "unknown") {
+    return (
+      <Badge className="bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300 border border-amber-300 font-medium text-[11px] px-2 py-0.5 shadow-none">
+        Unknown
       </Badge>
     )
   }
   return (
-    <Badge className="bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300 border border-amber-300 font-medium text-[11px] px-2 py-0.5 shadow-none">
+    <Badge className="bg-neutral-100 text-neutral-700 dark:bg-neutral-800 dark:text-neutral-300 border border-neutral-300 dark:border-neutral-700 font-medium text-[11px] px-2 py-0.5 shadow-none">
       Incomplete
     </Badge>
   )
@@ -64,7 +77,11 @@ function renderDispositionBadge(disposition?: string) {
 
 export function CallsView() {
   const searchParams = useSearchParams()
-  const currentWorkspace = searchParams.get("workspace") || "legal"
+  const tenant = searchParams.get("tenant") || searchParams.get("workspace") || "legal"
+  const currentWorkspace = searchParams.get("workspace") || (tenant === "luca_law" ? "legal" : tenant === "luca_dental" ? "dental" : tenant) || "legal"
+
+  // Dynamic header based on active tenant query parameter
+  const categoryHeader = getCategoryHeader(tenant)
 
   const { isCallActive, callDuration, callDirection, customerNumber, transcripts, formatTime } = useVapi()
 
@@ -73,25 +90,83 @@ export function CallsView() {
   const [calls, setCalls] = React.useState<CallHistoryRecord[]>([])
   const [searchQuery, setSearchQuery] = React.useState("")
   const [isLoaded, setIsLoaded] = React.useState(false)
+  const [isAnalyzing, setIsAnalyzing] = React.useState(false)
 
-  // Load calls from localStorage matching the workspace
+  // Load calls from localStorage AND sync from Neon Postgres database
   React.useEffect(() => {
     if (typeof window !== "undefined") {
+      let localCalls: CallHistoryRecord[] = []
       try {
         const saved = localStorage.getItem(storageKey)
         if (saved) {
-          setCalls(JSON.parse(saved))
+          localCalls = JSON.parse(saved)
+          setCalls(localCalls)
         } else {
-          // Fallback to default key if specific workspace has none
           const defaultSaved = localStorage.getItem("omnireach_call_logs_default")
-          setCalls(defaultSaved ? JSON.parse(defaultSaved) : [])
+          if (defaultSaved) {
+            localCalls = JSON.parse(defaultSaved)
+            setCalls(localCalls)
+          }
         }
       } catch (err) {
         console.error("Failed to load calls from localStorage:", err)
-        setCalls([])
-      } finally {
-        setIsLoaded(true)
       }
+
+      // Sync with Postgres database
+      fetch(`/api/vapi/logs?workspace=${encodeURIComponent(currentWorkspace)}`)
+        .then((res) => (res.ok ? res.json() : null))
+        .then((data) => {
+          if (data && Array.isArray(data.logs)) {
+            const dbCalls: CallHistoryRecord[] = data.logs.map((log: any) => {
+              const cat = log.callCategory || inferCallCategory(
+                {
+                  callCategory: log.callCategory,
+                  summary: log.summary,
+                  messages: Array.isArray(log.transcript) ? log.transcript : [],
+                },
+                currentWorkspace
+              )
+
+              return {
+                id: log.id,
+                vapiCallId: log.vapiCallId || undefined,
+                customerNumber: log.customerNumber || undefined,
+                callCategory: cat,
+                disposition: log.callStatus || undefined,
+                date: log.createdAt
+                  ? new Date(log.createdAt).toLocaleDateString()
+                  : new Date().toLocaleDateString(),
+                duration: log.duration || "0:00",
+                direction: (log.callDirection === "Inbound" || log.callDirection === "inboundPhoneCall" ? "Inbound" : "Outbound") as any,
+                messages: Array.isArray(log.transcript) ? log.transcript : [],
+                analysis: {
+                  summary: log.summary,
+                  structuredData: {
+                    callCategory: cat,
+                    callStatus: log.callStatus,
+                  },
+                },
+              }
+            })
+
+            if (dbCalls.length > 0) {
+              setCalls((prev) => {
+                const dbIds = new Set(dbCalls.map((c) => String(c.id)))
+                const dbVapiIds = new Set(dbCalls.map((c) => String(c.vapiCallId || "")))
+                const freshLocal = prev.filter(
+                  (p) => !dbIds.has(String(p.id)) && !dbVapiIds.has(String(p.vapiCallId || ""))
+                )
+                const merged = [...dbCalls, ...freshLocal]
+                localStorage.setItem(storageKey, JSON.stringify(merged))
+                return merged
+              })
+            }
+          }
+        })
+        .catch((err) => console.error("Error syncing calls from DB:", err))
+        .finally(() => {
+          setIsLoaded(true)
+        })
     }
   }, [currentWorkspace, storageKey, isCallActive])
 
@@ -104,6 +179,79 @@ export function CallsView() {
       } catch (err) {
         console.error("Error clearing logs:", err)
       }
+    }
+  }
+
+  const handleAnalyze = async () => {
+    if (isAnalyzing || calls.length === 0) return
+    setIsAnalyzing(true)
+    const toastId = toast.loading(
+      `Analyzing ${calls.length} call transcript${calls.length === 1 ? "" : "s"} with AI...`
+    )
+    try {
+      const res = await fetch("/api/vapi/analyze", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ calls }),
+      })
+      if (!res.ok) {
+        const errData = await res.json().catch(() => null)
+        throw new Error(errData?.error || `Request failed with status ${res.status}`)
+      }
+      const data = await res.json()
+      const results: Array<{ id: string | number; disposition: string }> =
+        data.results || []
+
+      if (results.length === 0) {
+        toast.error("AI returned no dispositions", { id: toastId })
+        return
+      }
+
+      const resultMap = new Map(results.map((r) => [String(r.id), r.disposition]))
+      if (typeof window !== "undefined") {
+        try {
+          const saved = localStorage.getItem(storageKey)
+          const stored: CallHistoryRecord[] = saved ? JSON.parse(saved) : []
+          let updated = 0
+          const nextStored = stored.map((call) => {
+            const disp = resultMap.get(String(call.id))
+            if (disp && call.disposition !== disp) {
+              updated++
+              return {
+                ...call,
+                disposition: disp,
+                analysis: {
+                  ...call.analysis,
+                  structuredData: {
+                    ...call.analysis?.structuredData,
+                    disposition: disp,
+                  },
+                },
+              }
+            }
+            return call
+          })
+          localStorage.setItem(storageKey, JSON.stringify(nextStored))
+          setCalls(nextStored)
+          toast.success(
+            updated > 0
+              ? `Updated ${updated} call disposition${updated === 1 ? "" : "s"}`
+              : "Dispositions were already up to date",
+            { id: toastId }
+          )
+        } catch (err) {
+          console.error("Error persisting dispositions:", err)
+          toast.error("Analyzed, but failed to save to localStorage", { id: toastId })
+        }
+      }
+    } catch (err) {
+      console.error("Error analyzing calls:", err)
+      toast.error(
+        err instanceof Error ? err.message : "Failed to analyze calls",
+        { id: toastId }
+      )
+    } finally {
+      setIsAnalyzing(false)
     }
   }
 
@@ -198,6 +346,18 @@ export function CallsView() {
             <PhoneCall className="size-3.5" />
             Open AI Dialer
           </Link>
+          {calls.length > 0 && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleAnalyze}
+              disabled={isAnalyzing}
+              className="text-xs gap-1.5 cursor-pointer disabled:cursor-not-allowed"
+            >
+              <Sparkles className={`size-3.5 ${isAnalyzing ? "animate-pulse" : "text-primary"}`} />
+              {isAnalyzing ? "Analyzing..." : "Analyze Calls"}
+            </Button>
+          )}
           {calls.length > 0 && (
             <Button
               variant="outline"
@@ -302,7 +462,7 @@ export function CallsView() {
                 <TableHead>Date & Time</TableHead>
                 <TableHead>Duration</TableHead>
                 <TableHead>Direction</TableHead>
-                <TableHead>Disposition</TableHead>
+                <TableHead>{categoryHeader}</TableHead>
                 <TableHead>Status</TableHead>
                 <TableHead>Turns</TableHead>
                 <TableHead className="text-right">Action</TableHead>
@@ -440,7 +600,12 @@ export function CallsView() {
                     const firstAssistantTurn =
                       call.messages.find((m) => m.role === "assistant")?.text || ""
                     const timestampStr = call.messages[0]?.timestamp || "Completed"
+                    const callCategory =
+                      call.callCategory ||
+                      call.analysis?.structuredData?.callCategory ||
+                      (call as any).structuredData?.callCategory
                     const callDisposition =
+                      callCategory ||
                       call.disposition ||
                       call.analysis?.structuredData?.disposition ||
                       (call as any).structuredData?.disposition
@@ -493,7 +658,9 @@ export function CallsView() {
                         </TableCell>
 
                         <TableCell>
-                          {renderDispositionBadge(callDisposition)}
+                          <span className="text-xs font-medium text-foreground">
+                            {inferCallCategory(call, currentWorkspace)}
+                          </span>
                         </TableCell>
 
                         <TableCell>

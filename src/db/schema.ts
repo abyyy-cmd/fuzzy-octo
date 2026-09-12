@@ -97,6 +97,7 @@ export const marketplaceLeads = pgTable("marketplace_leads", {
   phone: text("phone"),
   linkedinUrl: text("linkedin_url"),
   leadStatus: text("lead_status").default("prospecting"), // 'prospecting' | 'contacted' | 'replied' | 'booked'
+  callCategory: text("call_category"), // industry-specific categorization (e.g. 'Matter Type' for law, 'Service Requested' for dental)
   channel: text("channel").default("manyreach"), // 'manyreach' | 'linkedin' | 'vapi'
   lastInteractionAt: timestamp("last_interaction_at", { mode: "date" }),
   createdAt: timestamp("created_at", { mode: "date" }).defaultNow(),
@@ -113,5 +114,23 @@ export const leadInteractions = pgTable("lead_interactions", {
   eventType: text("event_type").notNull(), // 'sent' | 'replied' | 'call_completed'
   content: text("content"),
   metadata: jsonb("metadata"),
+  createdAt: timestamp("created_at", { mode: "date" }).defaultNow(),
+})
+
+export const callLogs = pgTable("call_logs", {
+  id: text("id")
+    .primaryKey()
+    .$defaultFn(() => crypto.randomUUID()),
+  workspaceId: text("workspace_id").references(() => workspaces.id, {
+    onDelete: "cascade",
+  }),
+  vapiCallId: text("vapi_call_id"),
+  customerNumber: text("customer_number"),
+  callDirection: text("call_direction"),
+  duration: text("duration"),
+  callStatus: text("call_status"), // 'Converted' | 'Not Converted' | 'Unknown'
+  callCategory: text("call_category"), // industry-specific category
+  transcript: jsonb("transcript"),
+  summary: text("summary"),
   createdAt: timestamp("created_at", { mode: "date" }).defaultNow(),
 })

@@ -48,6 +48,7 @@ import { Input } from "@/components/ui/input"
 import { toast } from "sonner"
 import type { WorkspaceRecord, LeadRecord } from "@/db/queries"
 import type { CallHistoryRecord } from "@/context/vapi-context"
+import { getCategoryHeader, inferCallCategory } from "@/lib/call-categorization"
 
 interface AdminWorkspaceDetailViewProps {
   workspace: WorkspaceRecord
@@ -115,28 +116,80 @@ export function AdminWorkspaceDetailView({
   const [searchQuery, setSearchQuery] = React.useState("")
   const [status, setStatus] = React.useState<"ACTIVE" | "PAUSED">("ACTIVE")
 
-  // Load tenant specific calls
+  // Load tenant specific calls from localStorage AND sync from Neon Postgres database
   React.useEffect(() => {
     if (typeof window !== "undefined") {
       try {
-        let loadedList: CallHistoryRecord[] = []
         const saved = localStorage.getItem(storageKey)
         if (saved) {
-          loadedList = JSON.parse(saved)
+          setCalls(JSON.parse(saved))
         } else {
-          // If no specific niche logs yet, check default
           const defaultSaved = localStorage.getItem("omnireach_call_logs_default")
-          loadedList = defaultSaved ? JSON.parse(defaultSaved) : []
+          if (defaultSaved) {
+            setCalls(JSON.parse(defaultSaved))
+          }
         }
-        setCalls(loadedList)
       } catch (err) {
-        console.error("Error loading tenant calls:", err)
-        setCalls([])
-      } finally {
-        setIsLoaded(true)
+        console.error("Error loading tenant calls from localStorage:", err)
       }
+
+      // Fetch latest logs from database for this tenant
+      fetch(`/api/vapi/logs?workspace=${encodeURIComponent(workspace.nicheType)}`)
+        .then((res) => (res.ok ? res.json() : null))
+        .then((data) => {
+          if (data && Array.isArray(data.logs)) {
+            const dbCalls: CallHistoryRecord[] = data.logs.map((log: any) => {
+              const cat = log.callCategory || inferCallCategory(
+                {
+                  callCategory: log.callCategory,
+                  summary: log.summary,
+                  messages: Array.isArray(log.transcript) ? log.transcript : [],
+                },
+                workspace.nicheType
+              )
+
+              return {
+                id: log.id,
+                vapiCallId: log.vapiCallId || undefined,
+                customerNumber: log.customerNumber || undefined,
+                callCategory: cat,
+                disposition: log.callStatus || undefined,
+                date: log.createdAt
+                  ? new Date(log.createdAt).toLocaleDateString()
+                  : new Date().toLocaleDateString(),
+                duration: log.duration || "0:00",
+                direction: (log.callDirection === "Inbound" || log.callDirection === "inboundPhoneCall" ? "Inbound" : "Outbound") as any,
+                messages: Array.isArray(log.transcript) ? log.transcript : [],
+                analysis: {
+                  summary: log.summary,
+                  structuredData: {
+                    callCategory: cat,
+                    callStatus: log.callStatus,
+                  },
+                },
+              }
+            })
+
+            if (dbCalls.length > 0) {
+              setCalls((prev) => {
+                const dbIds = new Set(dbCalls.map((c) => String(c.id)))
+                const dbVapiIds = new Set(dbCalls.map((c) => String(c.vapiCallId || "")))
+                const freshLocal = prev.filter(
+                  (p) => !dbIds.has(String(p.id)) && !dbVapiIds.has(String(p.vapiCallId || ""))
+                )
+                const merged = [...dbCalls, ...freshLocal]
+                localStorage.setItem(storageKey, JSON.stringify(merged))
+                return merged
+              })
+            }
+          }
+        })
+        .catch((err) => console.error("Error syncing tenant calls from DB:", err))
+        .finally(() => {
+          setIsLoaded(true)
+        })
     }
-  }, [storageKey])
+  }, [storageKey, workspace.nicheType])
 
   const toggleStatus = () => {
     const next = status === "ACTIVE" ? "PAUSED" : "ACTIVE"
@@ -179,6 +232,10 @@ export function AdminWorkspaceDetailView({
       : workspace.nicheType === "dental"
       ? process.env.NEXT_PUBLIC_VAPI_ASSISTANT_ID_DENTAL || "asst_dental_prod_02"
       : "asst_default_prod_00"
+
+  const isLaw = workspace.nicheType === "legal" || workspace.nicheType === "luca_law" || workspace.nicheType.toLowerCase().includes("law")
+  const isDental = workspace.nicheType === "dental" || workspace.nicheType === "luca_dental" || workspace.nicheType.toLowerCase().includes("dental")
+  const categoryHeader = isLaw ? "Matter Type" : isDental ? "Service Requested" : "Call Category"
 
   if (!isMounted) return null
 
@@ -485,7 +542,7 @@ export function AdminWorkspaceDetailView({
                 <TableHead className="font-mono text-xs">Date & Time</TableHead>
                 <TableHead className="font-mono text-xs">Duration</TableHead>
                 <TableHead className="font-mono text-xs">Direction</TableHead>
-                <TableHead className="font-mono text-xs">Disposition</TableHead>
+                <TableHead className="font-mono text-xs">{categoryHeader}</TableHead>
                 <TableHead className="font-mono text-xs">Turns</TableHead>
                 <TableHead className="text-right font-mono text-xs">Transcript</TableHead>
               </TableRow>
@@ -511,7 +568,12 @@ export function AdminWorkspaceDetailView({
                 filteredCalls.map((call) => {
                   const callIdShort = String(call.id).slice(-8)
                   const timestampStr = call.messages[0]?.timestamp || "Completed"
+                  const callCategory =
+                    call.callCategory ||
+                    call.analysis?.structuredData?.callCategory ||
+                    (call as any).structuredData?.callCategory
                   const callDisposition =
+                    callCategory ||
                     call.disposition ||
                     call.analysis?.structuredData?.disposition ||
                     (call as any).structuredData?.disposition
@@ -555,8 +617,8 @@ export function AdminWorkspaceDetailView({
                         </Badge>
                       </TableCell>
 
-                      <TableCell>
-                        {renderDispositionBadge(callDisposition)}
+                      <TableCell className="font-mono text-xs text-foreground font-medium">
+                        {inferCallCategory(call, workspace.nicheType)}
                       </TableCell>
 
                       <TableCell className="font-mono text-xs">

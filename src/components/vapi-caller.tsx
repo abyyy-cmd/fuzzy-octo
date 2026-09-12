@@ -47,6 +47,7 @@ export function VapiCaller({
     isMuted,
     transcripts,
     callDuration,
+    micPermissionState,
     startCall,
     endCall,
     toggleMute,
@@ -127,6 +128,14 @@ export function VapiCaller({
       </CardHeader>
 
       <CardContent className="space-y-4 pt-4 flex-1 flex flex-col">
+        {/* Microphone Permission Warning */}
+        {micPermissionState === "denied" && (
+          <div className="flex items-center gap-2 rounded-lg bg-destructive/10 p-3 text-xs font-medium text-destructive border border-destructive/20">
+            <MicOff className="size-4 shrink-0" />
+            <span>Microphone access was denied. Allow microphone access in your browser settings to make calls.</span>
+          </div>
+        )}
+
         {/* Call Controls Banner */}
         <div className="flex items-center justify-between gap-3 p-3 rounded-xl bg-muted/40 border">
           <div className="flex items-center gap-3">
